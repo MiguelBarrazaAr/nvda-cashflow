@@ -47,7 +47,6 @@ class KindSummaryDialog(wx.Dialog):
 		list_box.SetName(label.replace(":", ""))
 		list_box.Bind(wx.EVT_CONTEXT_MENU, lambda event, current=key: self._open_context(current))
 		list_box.Bind(wx.EVT_LISTBOX_DCLICK, lambda event, current=key: self._open_context(current))
-		list_box.Bind(wx.EVT_KEY_DOWN, lambda event, current=key: self._on_key_down(event, current))
 		sizer.Add(list_box, 1, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 12)
 		if occurrences:
 			list_box.SetSelection(0)
@@ -116,21 +115,18 @@ class KindSummaryDialog(wx.Dialog):
 		if key in (ord("T"), ord("t")) or (key == ord("T") and event.GetModifiers() == wx.MOD_CONTROL):
 			self._finish(("announce_filter",))
 			return
-		event.Skip()
-
-	def _on_key_down(self, event, key_name):
-		key = event.GetKeyCode()
-		if key in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
-			self._open_context(key_name)
+		current = self._focused_list_key()
+		if current and key in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+			self._open_context(current)
 			return
-		if key in (wx.WXK_DELETE, wx.WXK_NUMPAD_DELETE):
-			self._finish_selected("delete", key_name)
+		if current and key in (wx.WXK_DELETE, wx.WXK_NUMPAD_DELETE):
+			self._finish_selected("delete", current)
 			return
-		if key == wx.WXK_SPACE:
-			self._finish_selected("mark_pending" if key_name == "paid" else "mark_paid", key_name)
+		if current and key == wx.WXK_SPACE:
+			self._finish_selected("mark_pending" if current == "paid" else "mark_paid", current)
 			return
-		if key in (ord("E"), ord("e")):
-			self._finish_selected("edit", key_name)
+		if current and key in (ord("E"), ord("e")):
+			self._finish_selected("edit", current)
 			return
 		event.Skip()
 

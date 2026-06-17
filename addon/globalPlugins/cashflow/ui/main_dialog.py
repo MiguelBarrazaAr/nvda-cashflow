@@ -19,6 +19,7 @@ class MainDialog(wx.Dialog):
 			ITEM_KIND_INCOME: {"pending": None, "paid": None},
 		}
 		self._selected_kind = selected_kind
+		self._load_kind_data = None
 		self._lists = {}
 		self._build()
 		self.Bind(wx.EVT_SHOW, self._on_show)
@@ -38,7 +39,6 @@ class MainDialog(wx.Dialog):
 		)
 		self.kindList.SetName(_("Tipos de movimiento"))
 		self.kindList.Bind(wx.EVT_LISTBOX, self._on_kind_changed)
-		self.kindList.Bind(wx.EVT_KEY_DOWN, self._on_kind_key_down)
 		sizer.Add(self.kindList, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 12)
 		self.loadingText = wx.StaticText(panel, label=_("Cargando datos..."))
 		sizer.Add(self.loadingText, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
@@ -62,7 +62,6 @@ class MainDialog(wx.Dialog):
 		list_box.SetName(label.replace(":", ""))
 		list_box.Bind(wx.EVT_LISTBOX_DCLICK, lambda event, current=key: self._open_context(current))
 		list_box.Bind(wx.EVT_CONTEXT_MENU, lambda event, current=key: self._open_context(current))
-		list_box.Bind(wx.EVT_KEY_DOWN, lambda event, current=key: self._on_list_key_down(event, current))
 		sizer.Add(list_box, 1, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 12)
 		if occurrences:
 			list_box.SetSelection(0)
@@ -87,8 +86,13 @@ class MainDialog(wx.Dialog):
 
 	def _on_kind_changed(self, event):
 		selection = self.kindList.GetSelection()
-		self._selected_kind = self._available_kinds[selection]
-		self._refresh_view()
+		if 0 <= selection < len(self._available_kinds):
+			self._selected_kind = self._available_kinds[selection]
+			self._refresh_view()
+			if self._needs_load(self._selected_kind):
+				self.loadingText.SetLabel(_("Cargando datos..."))
+				if self._load_kind_data:
+					wx.CallAfter(self._load_kind_data, self._selected_kind)
 		event.Skip()
 
 	def _refresh_view(self):
@@ -114,6 +118,15 @@ class MainDialog(wx.Dialog):
 	def set_data(self, data):
 		self._data = data
 		self._refresh_view()
+
+	def set_kind_data(self, kind, data):
+		self._data[kind] = data
+		if kind == self._selected_kind:
+			self._refresh_view()
+			wx.CallAfter(self._focus_default)
+
+	def set_kind_loader(self, loader):
+		self._load_kind_data = loader
 
 	def get_data(self):
 		return self._data_for_selected()
@@ -159,31 +172,24 @@ class MainDialog(wx.Dialog):
 		if key_code == wx.WXK_ESCAPE:
 			self.EndModal(wx.ID_CLOSE)
 			return
-		event.Skip()
-
-	def _on_kind_key_down(self, event):
-		key_code = event.GetKeyCode()
-		if key_code in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+		current_key = self._focused_list_key()
+		if wx.Window.FindFocus() is self.kindList and key_code in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
 			self._refresh_view()
 			return
-		event.Skip()
-
-	def _on_list_key_down(self, event, key):
-		key_code = event.GetKeyCode()
-		if key_code in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
-			self._open_context(key)
+		if current_key and key_code in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+			self._open_context(current_key)
 			return
-		if key_code in (wx.WXK_DELETE, wx.WXK_NUMPAD_DELETE):
-			self._finish_selected("delete", key)
+		if current_key and key_code in (wx.WXK_DELETE, wx.WXK_NUMPAD_DELETE):
+			self._finish_selected("delete", current_key)
 			return
-		if key_code == wx.WXK_SPACE:
-			self._finish_selected("mark_pending" if key.startswith("paid") else "mark_paid", key)
+		if current_key and key_code == wx.WXK_SPACE:
+			self._finish_selected("mark_pending" if current_key.startswith("paid") else "mark_paid", current_key)
 			return
-		if key_code in (ord("I"), ord("i")):
+		if current_key and key_code in (ord("I"), ord("i")):
 			self._finish(("add", self._selected_kind))
 			return
-		if key_code in (ord("E"), ord("e")):
-			self._finish_selected("edit", key)
+		if current_key and key_code in (ord("E"), ord("e")):
+			self._finish_selected("edit", current_key)
 			return
 		event.Skip()
 
@@ -220,3 +226,7 @@ class MainDialog(wx.Dialog):
 			self._lists["pending"][0].SetFocus()
 		else:
 			self.kindList.SetFocus()
+
+	def _needs_load(self, kind):
+		data = self._data.get(kind, {"pending": None, "paid": None})
+		return data["pending"] is None or data["paid"] is None

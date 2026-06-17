@@ -134,30 +134,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			selected_kind = available_kinds[0]
 		sounds.play("show")
 		dialog = MainDialog(gui.mainFrame, on_action=self._handle_live_main_action, selected_kind=selected_kind, available_kinds=available_kinds)
-		def load_data():
-			try:
-				data = self._main_data()
-			except Exception:
-				log.exception("No se pudieron cargar los datos de Cashflow")
-				wx.CallAfter(self._show_error, _("No se pudieron cargar los datos de Cashflow."))
-				return
-			wx.CallAfter(self._set_main_data, dialog, data)
-		def start_loader():
-			threading.Thread(target=load_data, daemon=True).start()
-		wx.CallAfter(start_loader)
+		dialog.set_kind_loader(lambda kind: self._load_main_kind(dialog, kind))
+		self._load_main_kind(dialog, selected_kind)
 		def callback(result):
 			if result != wx.ID_OK:
 				sounds.play("close")
 				return
 			self._handle_main_action(dialog.selectedAction, dialog.get_data(), dialog.get_selected_kind())
 		gui.runScriptModalDialog(dialog, callback)
-
-	def _main_data(self):
-		return {
-			ITEM_KIND_PAYMENT: self._main_data_for_kind(ITEM_KIND_PAYMENT),
-			ITEM_KIND_COLLECTION: self._main_data_for_kind(ITEM_KIND_COLLECTION),
-			ITEM_KIND_INCOME: self._main_data_for_kind(ITEM_KIND_INCOME),
-		}
 
 	def _available_kinds(self):
 		kinds = []
@@ -185,9 +169,20 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			"paid": self._store.paid_incomes_for(),
 		}
 
-	def _set_main_data(self, dialog, data):
+	def _load_main_kind(self, dialog, kind):
+		def load():
+			try:
+				data = self._main_data_for_kind(kind)
+			except Exception:
+				log.exception("No se pudieron cargar los datos de Cashflow")
+				wx.CallAfter(self._show_error, _("No se pudieron cargar los datos de Cashflow."))
+				return
+			wx.CallAfter(self._set_main_kind_data, dialog, kind, data)
+		threading.Thread(target=load, daemon=True).start()
+
+	def _set_main_kind_data(self, dialog, kind, data):
 		if dialog and not dialog.IsBeingDeleted():
-			dialog.set_data(data)
+			dialog.set_kind_data(kind, data)
 			wx.CallAfter(dialog._focus_default)
 
 	def _show_error(self, message):
@@ -643,27 +638,29 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if action[0] == "manage":
 			return False
 		if action[0] == "add":
-			self._schedule_call(self._add_item, dialog.get_selected_kind(), lambda: dialog.set_data(self._main_data()))
+			kind = dialog.get_selected_kind()
+			self._schedule_call(self._add_item, kind, lambda: dialog.set_kind_data(kind, self._main_data_for_kind(kind)))
 			return True
 		name, key, index = action
 		occurrences = data.get(key)
 		if not occurrences or index >= len(occurrences):
 			return True
 		occurrence = occurrences[index]
+		kind = dialog.get_selected_kind()
 		if name == "mark_paid":
 			if self._mark_occurrence_paid(occurrence):
-				dialog.set_data(self._main_data())
+				dialog.set_kind_data(kind, self._main_data_for_kind(kind))
 			return True
 		if name == "mark_pending":
 			if self._mark_occurrence_pending(occurrence):
-				dialog.set_data(self._main_data())
+				dialog.set_kind_data(kind, self._main_data_for_kind(kind))
 			return True
 		if name == "delete":
 			if self._delete_item_now(occurrence.item):
-				dialog.set_data(self._main_data())
+				dialog.set_kind_data(kind, self._main_data_for_kind(kind))
 			return True
 		if name == "edit":
-			self._schedule_call(self._edit_item, occurrence.item, lambda: dialog.set_data(self._main_data()))
+			self._schedule_call(self._edit_item, occurrence.item, lambda: dialog.set_kind_data(kind, self._main_data_for_kind(kind)))
 			return True
 		return False
 
