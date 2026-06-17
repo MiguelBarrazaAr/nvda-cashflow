@@ -103,3 +103,9 @@ class MonthlyPaymentsDialog(wx.Dialog):
 			self._finish_selected("edit")
 			return
 		event.Skip()
+
+	def _focused_list_key(self):
+		focused = wx.Window.FindFocus()
+		if focused is self.listBox:
+			return "list"
+		return "list"

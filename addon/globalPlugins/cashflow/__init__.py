@@ -44,6 +44,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._menu = None
 		self._menuItems = []
 		self._timers = []
+		self._gestureTimers = {}
 		wx.CallAfter(self._add_tools_menu)
 
 	def terminate(self):
@@ -209,6 +210,19 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 					self._timers.remove(timer)
 		timer = wx.CallLater(350, run)
 		self._timers.append(timer)
+
+	def _debounce_script(self, key, func, *args, delay=220):
+		timer = self._gestureTimers.get(key)
+		if timer is not None:
+			try:
+				timer.Stop()
+			except Exception:
+				pass
+		def run():
+			self._gestureTimers.pop(key, None)
+			func(*args)
+		timer = wx.CallLater(delay, run)
+		self._gestureTimers[key] = timer
 
 	def _defer_call(self, func, *args):
 		wx.CallAfter(func, *args)
@@ -729,7 +743,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		gesture="kb:NVDA+control+f",
 	)
 	def script_openCashflow(self, gesture):
-		self._open_main(ITEM_KIND_PAYMENT)
+		self._debounce_script("open_main", self._open_main, ITEM_KIND_PAYMENT)
 
 	@script(
 		description=_("2 informe"),
@@ -745,11 +759,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_cashflowCollections(self, gesture):
 		repeat = scriptHandler.getLastScriptRepeatCount()
 		if repeat == 0:
-			self._open_main(ITEM_KIND_COLLECTION)
+			self._debounce_script("collections", self._open_main, ITEM_KIND_COLLECTION)
 		elif repeat == 1:
-			self._defer_call(self._add_item, ITEM_KIND_COLLECTION)
+			self._debounce_script("collections", self._add_item, ITEM_KIND_COLLECTION)
 		else:
-			self._defer_call(self._announce_pending, ITEM_KIND_COLLECTION)
+			self._debounce_script("collections", self._announce_pending, ITEM_KIND_COLLECTION)
 
 	@script(
 		description=_("4 ingresos, doble pulsacion agrega un nuevo ingreso, triple pulsacion anuncia el total del mes"),
@@ -758,11 +772,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_cashflowIncome(self, gesture):
 		repeat = scriptHandler.getLastScriptRepeatCount()
 		if repeat == 0:
-			self._open_main(ITEM_KIND_INCOME)
+			self._debounce_script("income", self._open_main, ITEM_KIND_INCOME)
 		elif repeat == 1:
-			self._defer_call(self._add_item, ITEM_KIND_INCOME)
+			self._debounce_script("income", self._add_item, ITEM_KIND_INCOME)
 		else:
-			self._defer_call(self._announce_income_total)
+			self._debounce_script("income", self._announce_income_total)
 
 	@script(
 		description=_("5 pagos, doble pulsacion agrega un nuevo pago, triple pulsacion anuncia los pendientes"),
@@ -771,8 +785,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_cashflowPayments(self, gesture):
 		repeat = scriptHandler.getLastScriptRepeatCount()
 		if repeat == 0:
-			self._open_main(ITEM_KIND_PAYMENT)
+			self._debounce_script("payments", self._open_main, ITEM_KIND_PAYMENT)
 		elif repeat == 1:
-			self._defer_call(self._add_item, ITEM_KIND_PAYMENT)
+			self._debounce_script("payments", self._add_item, ITEM_KIND_PAYMENT)
 		else:
-			self._defer_call(self._announce_pending, ITEM_KIND_PAYMENT)
+			self._debounce_script("payments", self._announce_pending, ITEM_KIND_PAYMENT)

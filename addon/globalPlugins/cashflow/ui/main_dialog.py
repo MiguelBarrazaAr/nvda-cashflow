@@ -198,6 +198,9 @@ class MainDialog(wx.Dialog):
 		for key, (list_box, occurrences) in self._lists.items():
 			if focused is list_box:
 				return key
+		for key in ("pending", "paid"):
+			if self._lists[key][1]:
+				return key
 		return None
 
 	def _finish_selected(self, action, key):
