@@ -37,6 +37,7 @@ class MainDialog(wx.Dialog):
 		)
 		self.kindList.SetName(_("Tipos de movimiento"))
 		self.kindList.Bind(wx.EVT_LISTBOX, self._on_kind_changed)
+		self.kindList.Bind(wx.EVT_KEY_DOWN, self._on_kind_key_down)
 		sizer.Add(self.kindList, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 12)
 
 		self._add_list(panel, sizer, "pending", _("Pendientes:"), self._data_for_selected()["pending"])
@@ -59,6 +60,7 @@ class MainDialog(wx.Dialog):
 		list_box.SetName(label.replace(":", ""))
 		list_box.Bind(wx.EVT_LISTBOX_DCLICK, lambda event, current=key: self._open_context(current))
 		list_box.Bind(wx.EVT_CONTEXT_MENU, lambda event, current=key: self._open_context(current))
+		list_box.Bind(wx.EVT_KEY_DOWN, lambda event, current=key: self._on_list_key_down(event, current))
 		sizer.Add(list_box, 1, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 12)
 		if occurrences:
 			list_box.SetSelection(0)
@@ -153,21 +155,28 @@ class MainDialog(wx.Dialog):
 		if key_code == wx.WXK_ESCAPE:
 			self.EndModal(wx.ID_CLOSE)
 			return
-		if wx.Window.FindFocus() is self.kindList and key_code in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+		event.Skip()
+
+	def _on_kind_key_down(self, event):
+		key_code = event.GetKeyCode()
+		if key_code in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
 			self._refresh_view()
 			return
-		current_key = self._focused_list_key()
-		if current_key and key_code in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
-			wx.CallAfter(self._open_context, current_key)
+		event.Skip()
+
+	def _on_list_key_down(self, event, key):
+		key_code = event.GetKeyCode()
+		if key_code in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+			self._open_context(key)
 			return
-		if current_key and key_code in (wx.WXK_DELETE, wx.WXK_NUMPAD_DELETE):
-			self._finish_selected("delete", current_key)
+		if key_code in (wx.WXK_DELETE, wx.WXK_NUMPAD_DELETE):
+			self._finish_selected("delete", key)
 			return
-		if current_key and key_code == wx.WXK_SPACE:
-			self._finish_selected("mark_pending" if current_key.startswith("paid") else "mark_paid", current_key)
+		if key_code == wx.WXK_SPACE:
+			self._finish_selected("mark_pending" if key.startswith("paid") else "mark_paid", key)
 			return
-		if current_key and key_code in (ord("E"), ord("e")):
-			self._finish_selected("edit", current_key)
+		if key_code in (ord("E"), ord("e")):
+			self._finish_selected("edit", key)
 			return
 		event.Skip()
 

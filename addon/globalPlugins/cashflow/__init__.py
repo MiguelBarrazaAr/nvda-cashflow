@@ -212,6 +212,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		timer = wx.CallLater(350, run)
 		self._timers.append(timer)
 
+	def _defer_call(self, func, *args):
+		wx.CallAfter(func, *args)
+
 	def _add_payment(self):
 		self._add_item(ITEM_KIND_PAYMENT)
 
@@ -736,9 +739,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if repeat == 0:
 			self._open_main(ITEM_KIND_COLLECTION)
 		elif repeat == 1:
-			self._add_item(ITEM_KIND_COLLECTION)
+			self._defer_call(self._add_item, ITEM_KIND_COLLECTION)
 		else:
-			self._announce_pending(ITEM_KIND_COLLECTION)
+			self._defer_call(self._announce_pending, ITEM_KIND_COLLECTION)
 
 	@script(
 		description=_("4 ingresos, doble pulsacion agrega un nuevo ingreso, triple pulsacion anuncia el total del mes"),
@@ -749,9 +752,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if repeat == 0:
 			self._open_main(ITEM_KIND_INCOME)
 		elif repeat == 1:
-			self._add_item(ITEM_KIND_INCOME)
+			self._defer_call(self._add_item, ITEM_KIND_INCOME)
 		else:
-			self._announce_income_total()
+			self._defer_call(self._announce_income_total)
 
 	@script(
 		description=_("5 pagos, doble pulsacion agrega un nuevo pago, triple pulsacion anuncia los pendientes"),
@@ -762,6 +765,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if repeat == 0:
 			self._open_main(ITEM_KIND_PAYMENT)
 		elif repeat == 1:
-			self._add_item(ITEM_KIND_PAYMENT)
+			self._defer_call(self._add_item, ITEM_KIND_PAYMENT)
 		else:
-			self._announce_pending(ITEM_KIND_PAYMENT)
+			self._defer_call(self._announce_pending, ITEM_KIND_PAYMENT)

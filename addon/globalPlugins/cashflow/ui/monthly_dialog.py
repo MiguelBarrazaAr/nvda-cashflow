@@ -21,6 +21,7 @@ class MonthlyPaymentsDialog(wx.Dialog):
 		self.listBox = wx.ListBox(self, choices=self._choices())
 		self.listBox.Bind(wx.EVT_CONTEXT_MENU, lambda event: self._open_context())
 		self.listBox.Bind(wx.EVT_LISTBOX_DCLICK, lambda event: self._open_context())
+		self.listBox.Bind(wx.EVT_KEY_DOWN, self._on_key_down)
 		sizer.Add(self.listBox, 1, wx.ALL | wx.EXPAND, 12)
 		row = wx.BoxSizer(wx.HORIZONTAL)
 		mark_label = _("Marcar como &pendiente") if self._paid else _("Marcar como &realizado")
@@ -90,6 +91,10 @@ class MonthlyPaymentsDialog(wx.Dialog):
 		if key_code == wx.WXK_ESCAPE:
 			self.EndModal(wx.ID_CLOSE)
 			return
+		event.Skip()
+
+	def _on_key_down(self, event):
+		key_code = event.GetKeyCode()
 		if key_code in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
 			self._open_context()
 			return
