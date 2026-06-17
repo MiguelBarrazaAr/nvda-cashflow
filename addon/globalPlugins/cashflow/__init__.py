@@ -142,7 +142,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				wx.CallAfter(self._show_error, _("No se pudieron cargar los datos de Cashflow."))
 				return
 			wx.CallAfter(self._set_main_data, dialog, data)
-		threading.Thread(target=load_data, daemon=True).start()
+		def start_loader():
+			threading.Thread(target=load_data, daemon=True).start()
+		wx.CallAfter(start_loader)
 		def callback(result):
 			if result != wx.ID_OK:
 				sounds.play("close")
@@ -186,6 +188,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _set_main_data(self, dialog, data):
 		if dialog and not dialog.IsBeingDeleted():
 			dialog.set_data(data)
+			wx.CallAfter(dialog._focus_default)
 
 	def _show_error(self, message):
 		sounds.play("error")
@@ -622,6 +625,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if action[0] == "manage":
 			self._schedule_call(self._manage_items, action[1])
 			return
+		if action[0] == "add":
+			self._schedule_call(self._add_item, selected_kind, lambda: self._open_main(selected_kind))
+			return
 		name, key, index = action
 		occurrences = data.get(key)
 		if not occurrences:
@@ -632,8 +638,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def _handle_live_main_action(self, action, dialog):
 		data = dialog.get_data()
-		if not action or action[0] == "manage":
+		if not action:
 			return False
+		if action[0] == "manage":
+			return False
+		if action[0] == "add":
+			self._schedule_call(self._add_item, dialog.get_selected_kind(), lambda: dialog.set_data(self._main_data()))
+			return True
 		name, key, index = action
 		occurrences = data.get(key)
 		if not occurrences or index >= len(occurrences):

@@ -109,6 +109,9 @@ class ManageItemsDialog(wx.Dialog):
 		if key_code in (wx.WXK_DELETE, wx.WXK_NUMPAD_DELETE):
 			self._finish("delete")
 			return
+		if key_code in (ord("I"), ord("i")):
+			self._finish("add")
+			return
 		if key_code in (ord("E"), ord("e")):
 			self._finish("edit")
 			return

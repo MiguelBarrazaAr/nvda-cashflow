@@ -21,6 +21,7 @@ class MainDialog(wx.Dialog):
 		self._selected_kind = selected_kind
 		self._lists = {}
 		self._build()
+		self.Bind(wx.EVT_SHOW, self._on_show)
 		self.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
 		self.Fit()
 
@@ -39,6 +40,8 @@ class MainDialog(wx.Dialog):
 		self.kindList.Bind(wx.EVT_LISTBOX, self._on_kind_changed)
 		self.kindList.Bind(wx.EVT_KEY_DOWN, self._on_kind_key_down)
 		sizer.Add(self.kindList, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 12)
+		self.loadingText = wx.StaticText(panel, label=_("Cargando datos..."))
+		sizer.Add(self.loadingText, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
 
 		self._add_list(panel, sizer, "pending", _("Pendientes:"), self._data_for_selected()["pending"])
 		self._add_list(panel, sizer, "paid", _("Realizados:"), self._data_for_selected()["paid"])
@@ -52,7 +55,6 @@ class MainDialog(wx.Dialog):
 		self.SetSizer(outer)
 		self._set_kind_selection(self._selected_kind)
 		self._refresh_view()
-		self._lists["pending"][0].SetFocus()
 
 	def _add_list(self, parent, sizer, key, label, occurrences):
 		sizer.Add(wx.StaticText(parent, label=label), 0, wx.LEFT | wx.RIGHT | wx.TOP, 12)
@@ -91,6 +93,8 @@ class MainDialog(wx.Dialog):
 
 	def _refresh_view(self):
 		data = self._data_for_selected()
+		loading = data["pending"] is None or data["paid"] is None
+		self.loadingText.Show(loading)
 		self.kindLabel.SetLabel(_("Tipo: {kind}").format(kind=self._kind_label(self._selected_kind)))
 		self._lists["pending"][0].Set(self._choices(data["pending"]))
 		self._lists["paid"][0].Set(self._choices(data["paid"]))
@@ -175,6 +179,9 @@ class MainDialog(wx.Dialog):
 		if key_code == wx.WXK_SPACE:
 			self._finish_selected("mark_pending" if key.startswith("paid") else "mark_paid", key)
 			return
+		if key_code in (ord("I"), ord("i")):
+			self._finish(("add", self._selected_kind))
+			return
 		if key_code in (ord("E"), ord("e")):
 			self._finish_selected("edit", key)
 			return
@@ -197,8 +204,19 @@ class MainDialog(wx.Dialog):
 		self._finish((action, key, index))
 
 	def _finish(self, action):
-		if self._on_action and action and action[0] != "manage":
+		if self._on_action and action:
 			if self._on_action(action, self):
 				return
 		self.selectedAction = action
 		self.EndModal(wx.ID_OK)
+
+	def _on_show(self, event):
+		if event.IsShown():
+			wx.CallAfter(self._focus_default)
+		event.Skip()
+
+	def _focus_default(self):
+		if self._data_for_selected()["pending"] is not None or self._data_for_selected()["paid"] is not None:
+			self._lists["pending"][0].SetFocus()
+		else:
+			self.kindList.SetFocus()
