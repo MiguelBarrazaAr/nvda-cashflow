@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Cashflow para NVDA</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5OxrjXhbu4zS3R4Qp2xQ1aZgYj7o" crossorigin="anonymous">
+  <style>
+    :root { --cashflow-accent: #0b5ed7; }
+    body { background: #f8f9fa; }
+    .hero {
+      background: linear-gradient(135deg, #ffffff 0%, #eef4ff 100%);
+      border-bottom: 1px solid #dee2e6;
+    }
+    .brand-badge {
+      display: inline-block;
+      border: 1px solid #ced4da;
+      background: #fff;
+      color: #212529;
+      padding: .35rem .75rem;
+      border-radius: .5rem;
+      font-weight: 600;
+    }
+    .feature-card {
+      border: 1px solid #dee2e6;
+      box-shadow: 0 .125rem .25rem rgba(0,0,0,.04);
+    }
+    .feature-card h2, .feature-card h3 { color: #1f2a37; }
+    .download-btn { background: var(--cashflow-accent); border-color: var(--cashflow-accent); }
+    .download-btn:focus, .download-btn:hover { background: #0a58ca; border-color: #0a58ca; }
+    a:focus, button:focus { outline: 3px solid #0a58ca; outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  <a class="visually-hidden-focusable" href="#contenido">Saltar al contenido principal</a>
+
+  <header class="hero py-5">
+    <div class="container">
+      <div class="row align-items-center g-4">
+        <div class="col-lg-8">
+          <span class="brand-badge mb-3">Cashflow</span>
+          <h1 class="display-5 fw-semibold mb-3">Organiza tus pagos, cobros e ingresos dentro de NVDA</h1>
+          <p class="lead mb-4">
+            Cashflow te ayuda a ver lo pendiente, marcar lo completado, revisar informes mensuales y guardar una copia segura de tus datos sin salir del lector de pantalla.
+          </p>
+          <div class="d-flex flex-wrap gap-3">
+            <a class="btn btn-primary btn-lg download-btn" href="https://github.com/MiguelBarrazaAr/nvda-cashflow/releases/download/v0.6.3/cashflow-0.6.3.nvda-addon">
+              Descargar v0.6.3
+            </a>
+            <a class="btn btn-outline-secondary btn-lg" href="#ayuda">Ver ayuda</a>
+          </div>
+        </div>
+        <div class="col-lg-4">
+          <div class="card feature-card">
+            <div class="card-body">
+              <h2 class="h4 card-title">En una frase</h2>
+              <p class="card-text mb-0">
+                Un complemento hecho para registrar movimientos financieros de forma accesible, rápida y ordenada.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main id="contenido">
+    <section class="py-5">
+      <div class="container">
+        <div class="row g-4">
+          <div class="col-md-4">
+            <article class="card feature-card h-100">
+              <div class="card-body">
+                <h2 class="h4">Qué hace por ti</h2>
+                <ul class="mb-0">
+                  <li>Te muestra lo que tienes pendiente y lo que ya completaste.</li>
+                  <li>Te deja agregar, editar, eliminar, importar y exportar.</li>
+                  <li>Te da informes mensuales claros con montos y totales.</li>
+                  <li>Te permite guardar y recuperar copias de seguridad protegidas con contraseña.</li>
+                </ul>
+              </div>
+            </article>
+          </div>
+          <div class="col-md-4">
+            <article class="card feature-card h-100">
+              <div class="card-body">
+                <h2 class="h4">Cómo se usa</h2>
+                <ul class="mb-0">
+                  <li>Abres la interfaz principal y eliges pagos, cobros o ingresos.</li>
+                  <li>Trabajas con listas separadas de pendientes y realizados.</li>
+                  <li>Usas el gestor cuando quieres editar u ordenar registros.</li>
+                  <li>Usas el informe cuando necesitas una lectura rápida del mes.</li>
+                </ul>
+              </div>
+            </article>
+          </div>
+          <div class="col-md-4">
+            <article class="card feature-card h-100">
+              <div class="card-body">
+                <h2 class="h4">Para quién sirve</h2>
+                <ul class="mb-0">
+                  <li>Personas que quieren llevar su dinero con NVDA.</li>
+                  <li>Quienes necesitan una interfaz simple y hablada.</li>
+                  <li>Quienes buscan revisar y ordenar movimientos sin depender de una vista visual pesada.</li>
+                </ul>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="py-5 bg-white border-top border-bottom">
+      <div class="container">
+        <div class="row g-4">
+          <div class="col-lg-6">
+            <h2 class="h3 mb-3">Casos de uso</h2>
+            <div class="accordion" id="casos">
+              <div class="accordion-item">
+                <h3 class="accordion-header" id="caso1h">
+                  <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#caso1" aria-expanded="true" aria-controls="caso1">
+                    Revisar lo que falta pagar
+                  </button>
+                </h3>
+                <div id="caso1" class="accordion-collapse collapse show" aria-labelledby="caso1h" data-bs-parent="#casos">
+                  <div class="accordion-body">
+                    Entras a pagos, escuchas solo tus pendientes y marcas lo que ya completaste sin mezclarlo con otras cuentas.
+                  </div>
+                </div>
+              </div>
+              <div class="accordion-item">
+                <h3 class="accordion-header" id="caso2h">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#caso2" aria-expanded="false" aria-controls="caso2">
+                    Registrar un cobro o ingreso
+                  </button>
+                </h3>
+                <div id="caso2" class="accordion-collapse collapse" aria-labelledby="caso2h" data-bs-parent="#casos">
+                  <div class="accordion-body">
+                    Agregas el movimiento, eliges fecha, moneda y categoría, y luego lo gestionas cuando necesites corregirlo.
+                  </div>
+                </div>
+              </div>
+              <div class="accordion-item">
+                <h3 class="accordion-header" id="caso3h">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#caso3" aria-expanded="false" aria-controls="caso3">
+                    Revisar el mes completo
+                  </button>
+                </h3>
+                <div id="caso3" class="accordion-collapse collapse" aria-labelledby="caso3h" data-bs-parent="#casos">
+                  <div class="accordion-body">
+                    Abres el informe y revisas montos, listas ordenadas y el total final del mes filtrado.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-6" id="ayuda">
+            <h2 class="h3 mb-3">Ayuda rápida</h2>
+            <div class="table-responsive">
+              <table class="table table-striped align-middle">
+                <thead>
+                  <tr>
+                    <th scope="col">Tecla</th>
+                    <th scope="col">Acción</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>Enter</code></td><td>Abre el menú contextual del elemento.</td></tr>
+                  <tr><td><code>Suprimir</code></td><td>Elimina el elemento seleccionado.</td></tr>
+                  <tr><td><code>Espacio</code></td><td>Cambia el estado entre pendiente y completado.</td></tr>
+                  <tr><td><code>E</code></td><td>Edita el elemento seleccionado.</td></tr>
+                  <tr><td><code>T</code></td><td>Lee el filtro aplicado.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="alert alert-info mb-0" role="note">
+              Puedes activar o desactivar pagos, cobros e ingresos desde la configuración de NVDA. Si desactivas todo, Cashflow te avisa antes de abrir la interfaz.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="py-4">
+    <div class="container d-flex flex-column flex-md-row justify-content-between gap-3">
+      <p class="mb-0">Cashflow para NVDA 0.6.3</p>
+      <p class="mb-0">
+        <a href="https://github.com/MiguelBarrazaAr/nvda-cashflow/releases/download/v0.6.3/cashflow-0.6.3.nvda-addon">Descargar complemento</a>
+      </p>
+    </div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+</body>
+</html>
