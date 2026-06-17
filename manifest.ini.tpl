@@ -1,0 +1,9 @@
+name = cashflow
+summary = Cashflow
+description = Gestor accesible de pagos para NVDA.
+version = 0.6.3
+author = Miguel Barraza <miguelbarraza2015@gmail.com>
+url = https://www.miguelbarraza.com.ar
+docFileName = readme.html
+minimumNVDAVersion = 2026.1
+lastTestedNVDAVersion = 2026.1
