@@ -22,6 +22,7 @@ class ManageItemsDialog(wx.Dialog):
 		self.listBox.SetName(_("Lista de {items}").format(items=item_kind_plural(self._kind)))
 		self.listBox.Bind(wx.EVT_CONTEXT_MENU, lambda event: self._open_context())
 		self.listBox.Bind(wx.EVT_LISTBOX_DCLICK, lambda event: self._open_context())
+		self.listBox.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
 		sizer.Add(self.listBox, 1, wx.ALL | wx.EXPAND, 12)
 		row = wx.BoxSizer(wx.HORIZONTAL)
 		for label, action in (

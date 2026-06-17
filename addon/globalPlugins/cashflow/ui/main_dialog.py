@@ -39,6 +39,7 @@ class MainDialog(wx.Dialog):
 		)
 		self.kindList.SetName(_("Tipos de movimiento"))
 		self.kindList.Bind(wx.EVT_LISTBOX, self._on_kind_changed)
+		self.kindList.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
 		sizer.Add(self.kindList, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 12)
 		self.loadingText = wx.StaticText(panel, label=_("Cargando datos..."))
 		sizer.Add(self.loadingText, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
@@ -62,6 +63,7 @@ class MainDialog(wx.Dialog):
 		list_box.SetName(label.replace(":", ""))
 		list_box.Bind(wx.EVT_LISTBOX_DCLICK, lambda event, current=key: self._open_context(current))
 		list_box.Bind(wx.EVT_CONTEXT_MENU, lambda event, current=key: self._open_context(current))
+		list_box.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
 		sizer.Add(list_box, 1, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 12)
 		if occurrences:
 			list_box.SetSelection(0)

@@ -133,9 +133,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return
 		if selected_kind not in available_kinds:
 			selected_kind = available_kinds[0]
-		sounds.play("show")
 		dialog = MainDialog(gui.mainFrame, on_action=self._handle_live_main_action, selected_kind=selected_kind, available_kinds=available_kinds)
 		dialog.set_kind_loader(lambda kind: self._load_main_kind(dialog, kind))
+		wx.CallAfter(sounds.play, "show")
 		self._load_main_kind(dialog, selected_kind)
 		def callback(result):
 			if result != wx.ID_OK:
@@ -743,7 +743,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		gesture="kb:NVDA+control+f",
 	)
 	def script_openCashflow(self, gesture):
-		self._debounce_script("open_main", self._open_main, ITEM_KIND_PAYMENT)
+		self._open_main(ITEM_KIND_PAYMENT)
 
 	@script(
 		description=_("2 informe"),
