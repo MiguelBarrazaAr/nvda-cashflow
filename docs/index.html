@@ -33,14 +33,14 @@
   </style>
 </head>
 <body>
-  <a class="visually-hidden-focusable" href="#contenido">Saltar al contenido principal</a>
+  <a class="visually-hidden-focusable" href="#titulo">Saltar al contenido principal</a>
 
   <header class="hero py-5">
     <div class="container">
       <div class="row align-items-center g-4">
         <div class="col-lg-8">
           <span class="brand-badge mb-3">Cashflow</span>
-          <h1 class="display-5 fw-semibold mb-3">Organiza tus pagos, cobros e ingresos dentro de NVDA</h1>
+          <h1 id="titulo" class="display-5 fw-semibold mb-3">Organiza tus pagos, cobros e ingresos dentro de NVDA</h1>
           <p class="lead mb-4">
             Cashflow te ayuda a ver lo pendiente, marcar lo completado, revisar informes mensuales y guardar una copia segura de tus datos sin salir del lector de pantalla.
           </p>
@@ -66,11 +66,21 @@
   </header>
 
   <main id="contenido">
+    <nav class="py-3 border-bottom bg-white" aria-label="Indice de secciones">
+      <div class="container">
+        <strong class="me-3">Indice:</strong>
+        <a class="me-3" href="#que-hace">Que hace por ti</a>
+        <a class="me-3" href="#como-se-usa">Como se usa</a>
+        <a class="me-3" href="#casos-de-uso">Casos de uso</a>
+        <a class="me-3" href="#ayuda">Ayuda rapida</a>
+      </div>
+    </nav>
+
     <section class="py-5">
       <div class="container">
         <div class="row g-4">
           <div class="col-md-4">
-            <article class="card feature-card h-100">
+            <article class="card feature-card h-100" id="que-hace">
               <div class="card-body">
                 <h2 class="h4">Qué hace por ti</h2>
                 <ul class="mb-0">
@@ -83,7 +93,7 @@
             </article>
           </div>
           <div class="col-md-4">
-            <article class="card feature-card h-100">
+            <article class="card feature-card h-100" id="como-se-usa">
               <div class="card-body">
                 <h2 class="h4">Cómo se usa</h2>
                 <ul class="mb-0">
@@ -115,7 +125,7 @@
       <div class="container">
         <div class="row g-4">
           <div class="col-lg-6">
-            <h2 class="h3 mb-3">Casos de uso</h2>
+            <h2 class="h3 mb-3" id="casos-de-uso">Casos de uso</h2>
             <div class="accordion" id="casos">
               <div class="accordion-item">
                 <h3 class="accordion-header" id="caso1h">
