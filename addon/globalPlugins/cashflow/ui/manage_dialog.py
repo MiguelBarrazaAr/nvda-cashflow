@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import wx
 
+from logHandler import log
+
+from .. import sounds
 from ..formatting import format_amount, item_kind_plural
 
 
@@ -12,8 +15,10 @@ class ManageItemsDialog(wx.Dialog):
 		self._kind = kind
 		self._items = items
 		self._on_action = on_action
+		self._busy = False
 		self._build()
 		self.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
+		wx.CallAfter(sounds.play, "open")
 		self.Fit()
 
 	def _build(self):
@@ -22,7 +27,6 @@ class ManageItemsDialog(wx.Dialog):
 		self.listBox.SetName(_("Lista de {items}").format(items=item_kind_plural(self._kind)))
 		self.listBox.Bind(wx.EVT_CONTEXT_MENU, lambda event: self._open_context())
 		self.listBox.Bind(wx.EVT_LISTBOX_DCLICK, lambda event: self._open_context())
-		self.listBox.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
 		sizer.Add(self.listBox, 1, wx.ALL | wx.EXPAND, 12)
 		row = wx.BoxSizer(wx.HORIZONTAL)
 		for label, action in (
@@ -62,6 +66,9 @@ class ManageItemsDialog(wx.Dialog):
 
 	def _finish(self, action):
 		index = self.listBox.GetSelection()
+		if index == wx.NOT_FOUND and self._items and action not in ("add", "import", "export"):
+			self.listBox.SetSelection(0)
+			index = 0
 		if action not in ("add", "import", "export") and (index == wx.NOT_FOUND or index >= len(self._items)):
 			return
 		if self._on_action and self._on_action((action, index), self):
@@ -72,6 +79,9 @@ class ManageItemsDialog(wx.Dialog):
 	def _open_context(self):
 		menu = wx.Menu()
 		index = self.listBox.GetSelection()
+		if index == wx.NOT_FOUND and self._items:
+			self.listBox.SetSelection(0)
+			index = 0
 		actions = [
 			("add", _("Agregar")),
 			("edit", _("Modificar")),
@@ -91,12 +101,20 @@ class ManageItemsDialog(wx.Dialog):
 			if action not in ("add", "import", "export") and not has_items:
 				item.Enable(False)
 			self.Bind(wx.EVT_MENU, lambda event, current=action: self._finish(current), item)
-		self.PopupMenu(menu)
-		menu.Destroy()
+		self._busy = True
+		try:
+			self.PopupMenu(menu)
+		finally:
+			menu.Destroy()
+			self._busy = False
 
 	def _on_char_hook(self, event):
 		key_code = event.GetKeyCode()
+		log.info("cashflow manage key=%s focus=%s count=%d", key_code, type(wx.Window.FindFocus()).__name__ if wx.Window.FindFocus() else None, len(self._items))
+		if self._busy and key_code != wx.WXK_ESCAPE:
+			return
 		if key_code == wx.WXK_ESCAPE:
+			sounds.play("close")
 			self.EndModal(wx.ID_CLOSE)
 			return
 		if key_code in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):

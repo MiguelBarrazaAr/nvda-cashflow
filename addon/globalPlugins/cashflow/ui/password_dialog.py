@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import wx
 
+from .. import sounds
+
 
 class PasswordDialog(wx.Dialog):
 	def __init__(self, parent, title, prompt):
@@ -24,8 +26,21 @@ class PasswordDialog(wx.Dialog):
 		outer.Add(panel, 1, wx.EXPAND)
 		self.SetSizer(outer)
 		self.Bind(wx.EVT_BUTTON, self._on_ok, id=wx.ID_OK)
+		self.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
 		self.SetEscapeId(wx.ID_CANCEL)
+		wx.CallAfter(sounds.play, "open")
 
 	def _on_ok(self, event):
 		self.password = self.passwordCtrl.GetValue()
 		self.EndModal(wx.ID_OK)
+
+	def _on_char_hook(self, event):
+		key_code = event.GetKeyCode()
+		if key_code == wx.WXK_ESCAPE:
+			sounds.play("close")
+			self.EndModal(wx.ID_CANCEL)
+			return
+		if key_code in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+			self._on_ok(event)
+			return
+		event.Skip()

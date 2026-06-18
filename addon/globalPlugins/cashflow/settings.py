@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
+
 import config
 import gui
 import wx
 from gui import settingsDialogs
+
+from .models import SUGGESTED_CATEGORIES
 
 
 SECTION = "cashflow"
@@ -38,10 +42,13 @@ def initialize() -> None:
 	config.conf.spec[SECTION] = {
 		"enableSounds": "boolean(default=True)",
 		"currency": "string(default='ars')",
+		"categories": "string(default='')",
 		"enablePayments": "boolean(default=True)",
 		"enableCollections": "boolean(default=True)",
 		"enableIncomes": "boolean(default=True)",
 	}
+	if not str(config.conf[SECTION].get("categories", "")).strip():
+		config.conf[SECTION]["categories"] = json.dumps(SUGGESTED_CATEGORIES, ensure_ascii=False)
 	if CashflowSettingsPanel not in settingsDialogs.NVDASettingsDialog.categoryClasses:
 		settingsDialogs.NVDASettingsDialog.categoryClasses.append(CashflowSettingsPanel)
 

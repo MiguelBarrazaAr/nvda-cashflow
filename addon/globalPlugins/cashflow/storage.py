@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import threading
 from datetime import datetime
 
 import globalVars
@@ -28,15 +29,29 @@ class CashflowStore:
 		self._root = root
 		self._db_path = os.path.join(root, "cashflow.db")
 		self._items: list[CashflowItem] = []
-		self._initialize()
-		self.reload()
+		self._initialized = False
+		self._loaded = False
+		self._loading = False
+		self._init_lock = threading.Lock()
+		self._revision = 0
+		self._kind_cache: dict[tuple[int, str], list[CashflowItem]] = {}
+		self._occurrence_cache: dict[tuple[int, str, int | None, int | None], list] = {}
 
 	def _connect(self):
+		os.makedirs(self._root, exist_ok=True)
+		if not self._initialized:
+			with self._init_lock:
+				if not self._initialized:
+					self._initialize()
+					self._initialized = True
+		return self._raw_connect()
+
+	def _raw_connect(self):
 		os.makedirs(self._root, exist_ok=True)
 		return sqlite3.connect(self._db_path)
 
 	def _initialize(self) -> None:
-		with self._connect() as connection:
+		with self._raw_connect() as connection:
 			connection.execute(
 				"""
 				CREATE TABLE IF NOT EXISTS metadata (
@@ -61,30 +76,55 @@ class CashflowStore:
 			)
 
 	def reload(self) -> None:
-		items = []
-		with self._connect() as connection:
-			rows = connection.execute("SELECT payload FROM cashflow_items ORDER BY created_at").fetchall()
-		for index, row in enumerate(rows):
-			try:
-				item = CashflowItem.from_dict(json.loads(row[0]))
-				if not item.order:
-					item.order = index + 1
-				items.append(item)
-			except Exception:
-				log.exception("No se pudo cargar un pago de Cashflow")
-		self._items = sorted(items, key=lambda item: (item.kind, item.order, item.name.lower()))
+		self._loading = True
+		try:
+			items = []
+			with self._connect() as connection:
+				rows = connection.execute("SELECT payload FROM cashflow_items ORDER BY created_at").fetchall()
+			for index, row in enumerate(rows):
+				try:
+					item = CashflowItem.from_dict(json.loads(row[0]))
+					if not item.order:
+						item.order = index + 1
+					items.append(item)
+				except Exception:
+					log.exception("No se pudo cargar un pago de Cashflow")
+			self._items = sorted(items, key=lambda item: (item.kind, item.order, item.name.lower()))
+			self._loaded = True
+			self._touch()
+		finally:
+			self._loading = False
+
+	@property
+	def is_loaded(self) -> bool:
+		return self._loaded
+
+	@property
+	def is_loading(self) -> bool:
+		return self._loading
+
+	@property
+	def revision(self) -> int:
+		return self._revision
+
+	def _touch(self) -> None:
+		self._revision += 1
+		self._kind_cache.clear()
+		self._occurrence_cache.clear()
 
 	def add_payment(self, item: CashflowItem) -> None:
 		if not item.order:
 			item.order = self._next_order(item.kind)
 		self._items.append(item)
 		self._upsert(item)
+		self._touch()
 
 	def update_item(self, item: CashflowItem) -> None:
 		for index, current in enumerate(self._items):
 			if current.id == item.id:
 				self._items[index] = item
 				self._upsert(item)
+				self._touch()
 				return
 		self.add_payment(item)
 
@@ -95,18 +135,49 @@ class CashflowStore:
 			return False
 		with self._connect() as connection:
 			connection.execute("DELETE FROM cashflow_items WHERE id = ?", (item_id,))
+		self._touch()
 		return True
+
+	def delete_items_for_category(self, category: str) -> int:
+		matching = [item for item in self._items if item.category == category]
+		if not matching:
+			return 0
+		ids = {item.id for item in matching}
+		self._items = [item for item in self._items if item.id not in ids]
+		with self._connect() as connection:
+			for item_id in ids:
+				connection.execute("DELETE FROM cashflow_items WHERE id = ?", (item_id,))
+		self._touch()
+		return len(matching)
+
+	def rename_category(self, old_category: str, new_category: str) -> int:
+		if old_category == new_category:
+			return 0
+		changed = 0
+		for item in self._items:
+			if item.category == old_category:
+				item.category = new_category
+				self._upsert(item)
+				changed += 1
+		if changed:
+			self._touch()
+		return changed
+
+	def items_for_category(self, category: str) -> list[CashflowItem]:
+		return [item for item in self._items if item.category == category]
 
 	def clear_all(self) -> None:
 		self._items = []
 		with self._connect() as connection:
 			connection.execute("DELETE FROM cashflow_items")
+		self._touch()
 
 	def replace_all(self, items: list[CashflowItem]) -> None:
 		self.clear_all()
 		for item in items:
 			self._items.append(item)
 			self._upsert(item)
+		self._touch()
 
 	def all_items(self) -> list[CashflowItem]:
 		return list(self._items)
@@ -124,7 +195,13 @@ class CashflowStore:
 		return self._items_for_kind(kind)
 
 	def _items_for_kind(self, kind: str) -> list[CashflowItem]:
-		return sorted([item for item in self._items if item.kind == kind], key=lambda item: (item.order, item.name.lower()))
+		cache_key = (self._revision, kind)
+		cached = self._kind_cache.get(cache_key)
+		if cached is not None:
+			return list(cached)
+		items = sorted([item for item in self._items if item.kind == kind], key=lambda item: (item.order, item.name.lower()))
+		self._kind_cache[cache_key] = list(items)
+		return list(items)
 
 	def _next_order(self, kind: str) -> int:
 		items = self._items_for_kind(kind)
@@ -145,6 +222,7 @@ class CashflowStore:
 		item.order, other.order = other.order, item.order
 		self._upsert(item)
 		self._upsert(other)
+		self._touch()
 		return True
 
 	def export_items(self, kind: str, path: str) -> None:
@@ -247,7 +325,13 @@ class CashflowStore:
 		from datetime import date
 
 		target = target or date.today()
-		return occurrences_for_month(self._items, target.year, target.month)
+		cache_key = (self._revision, "all", target.year, target.month)
+		cached = self._occurrence_cache.get(cache_key)
+		if cached is not None:
+			return list(cached)
+		occurrences = sorted(occurrences_for_month(self._items, target.year, target.month), key=lambda occurrence: occurrence.due_date)
+		self._occurrence_cache[cache_key] = list(occurrences)
+		return list(occurrences)
 
 	def occurrences_for_kind(self, kind: str, target=None):
 		from .recurrence import occurrences_for_month
@@ -255,31 +339,85 @@ class CashflowStore:
 
 		target = target or date.today()
 		items = self._items_for_kind(kind)
-		return occurrences_for_month(items, target.year, target.month)
+		cache_key = (self._revision, kind, target.year, target.month)
+		cached = self._occurrence_cache.get(cache_key)
+		if cached is not None:
+			return list(cached)
+		occurrences = sorted(occurrences_for_month(items, target.year, target.month), key=lambda occurrence: occurrence.due_date)
+		self._occurrence_cache[cache_key] = list(occurrences)
+		return list(occurrences)
 
 	def pending_for(self, target=None):
-		return [occurrence for occurrence in self.occurrences_for(target) if not occurrence.paid]
+		cache_key = (self._revision, "pending-all", getattr(target, "year", None), getattr(target, "month", None))
+		cached = self._occurrence_cache.get(cache_key)
+		if cached is not None:
+			return list(cached)
+		occurrences = [occurrence for occurrence in self.occurrences_for(target) if not occurrence.paid]
+		self._occurrence_cache[cache_key] = list(occurrences)
+		return list(occurrences)
 
 	def paid_for(self, target=None):
-		return [occurrence for occurrence in self.occurrences_for(target) if occurrence.paid]
+		cache_key = (self._revision, "paid-all", getattr(target, "year", None), getattr(target, "month", None))
+		cached = self._occurrence_cache.get(cache_key)
+		if cached is not None:
+			return list(cached)
+		occurrences = sorted([occurrence for occurrence in self.occurrences_for(target) if occurrence.paid], key=lambda occurrence: occurrence.due_date, reverse=True)
+		self._occurrence_cache[cache_key] = list(occurrences)
+		return list(occurrences)
 
 	def pending_payments_for(self, target=None):
-		return [occurrence for occurrence in self.occurrences_for_kind(ITEM_KIND_PAYMENT, target) if not occurrence.paid]
+		cache_key = (self._revision, ITEM_KIND_PAYMENT, "pending", getattr(target, "year", None), getattr(target, "month", None))
+		cached = self._occurrence_cache.get(cache_key)
+		if cached is not None:
+			return list(cached)
+		occurrences = [occurrence for occurrence in self.occurrences_for_kind(ITEM_KIND_PAYMENT, target) if not occurrence.paid]
+		self._occurrence_cache[cache_key] = list(occurrences)
+		return list(occurrences)
 
 	def paid_payments_for(self, target=None):
-		return [occurrence for occurrence in self.occurrences_for_kind(ITEM_KIND_PAYMENT, target) if occurrence.paid]
+		cache_key = (self._revision, ITEM_KIND_PAYMENT, "paid", getattr(target, "year", None), getattr(target, "month", None))
+		cached = self._occurrence_cache.get(cache_key)
+		if cached is not None:
+			return list(cached)
+		occurrences = sorted([occurrence for occurrence in self.occurrences_for_kind(ITEM_KIND_PAYMENT, target) if occurrence.paid], key=lambda occurrence: occurrence.due_date, reverse=True)
+		self._occurrence_cache[cache_key] = list(occurrences)
+		return list(occurrences)
 
 	def pending_incomes_for(self, target=None):
-		return [occurrence for occurrence in self.occurrences_for_kind(ITEM_KIND_INCOME, target) if not occurrence.paid]
+		cache_key = (self._revision, ITEM_KIND_INCOME, "pending", getattr(target, "year", None), getattr(target, "month", None))
+		cached = self._occurrence_cache.get(cache_key)
+		if cached is not None:
+			return list(cached)
+		occurrences = [occurrence for occurrence in self.occurrences_for_kind(ITEM_KIND_INCOME, target) if not occurrence.paid]
+		self._occurrence_cache[cache_key] = list(occurrences)
+		return list(occurrences)
 
 	def paid_incomes_for(self, target=None):
-		return [occurrence for occurrence in self.occurrences_for_kind(ITEM_KIND_INCOME, target) if occurrence.paid]
+		cache_key = (self._revision, ITEM_KIND_INCOME, "paid", getattr(target, "year", None), getattr(target, "month", None))
+		cached = self._occurrence_cache.get(cache_key)
+		if cached is not None:
+			return list(cached)
+		occurrences = sorted([occurrence for occurrence in self.occurrences_for_kind(ITEM_KIND_INCOME, target) if occurrence.paid], key=lambda occurrence: occurrence.due_date, reverse=True)
+		self._occurrence_cache[cache_key] = list(occurrences)
+		return list(occurrences)
 
 	def pending_collections_for(self, target=None):
-		return [occurrence for occurrence in self.occurrences_for_kind(ITEM_KIND_COLLECTION, target) if not occurrence.paid]
+		cache_key = (self._revision, ITEM_KIND_COLLECTION, "pending", getattr(target, "year", None), getattr(target, "month", None))
+		cached = self._occurrence_cache.get(cache_key)
+		if cached is not None:
+			return list(cached)
+		occurrences = [occurrence for occurrence in self.occurrences_for_kind(ITEM_KIND_COLLECTION, target) if not occurrence.paid]
+		self._occurrence_cache[cache_key] = list(occurrences)
+		return list(occurrences)
 
 	def paid_collections_for(self, target=None):
-		return [occurrence for occurrence in self.occurrences_for_kind(ITEM_KIND_COLLECTION, target) if occurrence.paid]
+		cache_key = (self._revision, ITEM_KIND_COLLECTION, "paid", getattr(target, "year", None), getattr(target, "month", None))
+		cached = self._occurrence_cache.get(cache_key)
+		if cached is not None:
+			return list(cached)
+		occurrences = sorted([occurrence for occurrence in self.occurrences_for_kind(ITEM_KIND_COLLECTION, target) if occurrence.paid], key=lambda occurrence: occurrence.due_date, reverse=True)
+		self._occurrence_cache[cache_key] = list(occurrences)
+		return list(occurrences)
 
 	def mark_paid(self, item_id: str, period: str) -> bool:
 		for item in self._items:
@@ -287,6 +425,7 @@ class CashflowStore:
 				changed = item.mark_paid(period)
 				if changed:
 					self._upsert(item)
+					self._touch()
 				return changed
 		return False
 
@@ -296,5 +435,6 @@ class CashflowStore:
 				changed = item.mark_pending(period)
 				if changed:
 					self._upsert(item)
+					self._touch()
 				return changed
 		return False

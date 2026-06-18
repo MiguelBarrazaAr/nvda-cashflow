@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import wx
 
+from .. import sounds
 from ..formatting import format_amount, item_kind_plural
 
 
@@ -16,6 +17,7 @@ class KindSummaryDialog(wx.Dialog):
 		self._lists = {}
 		self._build()
 		self.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
+		wx.CallAfter(sounds.play, "open")
 		self.Fit()
 
 	def _build(self):
@@ -28,7 +30,7 @@ class KindSummaryDialog(wx.Dialog):
 		row = wx.BoxSizer(wx.HORIZONTAL)
 		for label, action in (
 			(_("&Gestionar"), "manage"),
-			(_("&Cambiar filtro"), "filter"),
+			(_("Ver &meses anteriores"), "filter"),
 			(_("Ver &informe"), "report"),
 		):
 			button = wx.Button(panel, label=label)
@@ -47,7 +49,7 @@ class KindSummaryDialog(wx.Dialog):
 		list_box.SetName(label.replace(":", ""))
 		list_box.Bind(wx.EVT_CONTEXT_MENU, lambda event, current=key: self._open_context(current))
 		list_box.Bind(wx.EVT_LISTBOX_DCLICK, lambda event, current=key: self._open_context(current))
-		list_box.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
+		list_box.Bind(wx.EVT_KEY_DOWN, self._on_char_hook)
 		sizer.Add(list_box, 1, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 12)
 		if occurrences:
 			list_box.SetSelection(0)
@@ -81,6 +83,9 @@ class KindSummaryDialog(wx.Dialog):
 		if not occurrences:
 			return
 		index = list_box.GetSelection()
+		if index == wx.NOT_FOUND and occurrences:
+			list_box.SetSelection(0)
+			index = 0
 		if index == wx.NOT_FOUND or index >= len(occurrences):
 			return
 		menu = wx.Menu()
@@ -107,19 +112,25 @@ class KindSummaryDialog(wx.Dialog):
 		if not occurrences:
 			return
 		index = list_box.GetSelection()
+		if index == wx.NOT_FOUND:
+			list_box.SetSelection(0)
+			index = 0
 		if index == wx.NOT_FOUND or index >= len(occurrences):
 			return
 		self._finish((action, key, index))
 
 	def _on_char_hook(self, event):
 		key = event.GetKeyCode()
+		current = self._event_list_key(event)
 		if key == wx.WXK_ESCAPE:
+			sounds.play("close")
 			self.EndModal(wx.ID_CLOSE)
 			return
 		if key in (ord("T"), ord("t")) or (key == ord("T") and event.GetModifiers() == wx.MOD_CONTROL):
 			self._finish(("announce_filter",))
 			return
-		current = self._focused_list_key()
+		if current is None and key in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+			return
 		if current and key in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
 			self._open_context(current)
 			return
@@ -133,6 +144,13 @@ class KindSummaryDialog(wx.Dialog):
 			self._finish_selected("edit", current)
 			return
 		event.Skip()
+
+	def _event_list_key(self, event):
+		source = event.GetEventObject()
+		for key, (list_box, _) in self._lists.items():
+			if source is list_box:
+				return key
+		return self._focused_list_key()
 
 	def _finish(self, action):
 		if self._on_action and action and len(action) > 1:

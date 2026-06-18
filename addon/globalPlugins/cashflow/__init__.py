@@ -6,6 +6,7 @@ from html import escape
 import importlib
 import json
 import os
+import time
 import threading
 
 import addonHandler
@@ -13,6 +14,7 @@ import globalPluginHandler
 import gui
 import scriptHandler
 import wx
+import ui as nvda_ui
 from logHandler import log
 from scriptHandler import script
 
@@ -28,6 +30,8 @@ from .ui.main_dialog import MainDialog
 from .ui.monthly_dialog import MonthlyPaymentsDialog
 from .ui.payment_dialog import PaymentDialog
 from .ui.password_dialog import PasswordDialog
+from .months import format_month_year
+from .version import ADDON_AUTHOR, ADDON_EMAIL, ADDON_SUMMARY, ADDON_URL, ADDON_VERSION, display_name
 
 
 addonHandler.initTranslation()
@@ -45,6 +49,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._menuItems = []
 		self._timers = []
 		self._gestureTimers = {}
+		self._main_dialog_open = False
+		self._loading_dialogs = {ITEM_KIND_PAYMENT: [], ITEM_KIND_COLLECTION: [], ITEM_KIND_INCOME: []}
+		self._item_dialog_open = {ITEM_KIND_PAYMENT: False, ITEM_KIND_COLLECTION: False, ITEM_KIND_INCOME: False}
+		self._main_kind_cache = {}
+		self._main_kind_cache_lock = threading.Lock()
+		self._main_kind_loading = set()
+		threading.Thread(target=self._preload_store, daemon=True).start()
 		wx.CallAfter(self._add_tools_menu)
 
 	def terminate(self):
@@ -62,19 +73,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._append_menu_item(submenu, _("Gestor Cashflow"), self._on_open)
 
 			pagos_menu = wx.Menu()
-			self._append_menu_item(pagos_menu, _("Pendientes"), lambda event: self._open_main(ITEM_KIND_PAYMENT))
+			self._append_menu_item(pagos_menu, _("Pendientes"), lambda event: self._show_pending())
 			self._append_menu_item(pagos_menu, _("Nuevo"), self._on_add_payment)
 			self._append_menu_item(pagos_menu, _("Gestionar"), self._on_manage_payments)
 			self._append_submenu(submenu, _("Pagos"), pagos_menu)
 
 			cobros_menu = wx.Menu()
-			self._append_menu_item(cobros_menu, _("Pendientes"), lambda event: self._open_main(ITEM_KIND_COLLECTION))
-			self._append_menu_item(cobros_menu, _("Nuevo"), self._on_add_income)
-			self._append_menu_item(cobros_menu, _("Gestionar"), self._on_manage_incomes)
+			self._append_menu_item(cobros_menu, _("Pendientes"), lambda event: self._show_pending_collections())
+			self._append_menu_item(cobros_menu, _("Nuevo"), self._on_add_collection)
+			self._append_menu_item(cobros_menu, _("Gestionar"), self._on_manage_collections)
 			self._append_submenu(submenu, _("Cobros"), cobros_menu)
 
 			ingresos_menu = wx.Menu()
-			self._append_menu_item(ingresos_menu, _("Pendientes"), lambda event: self._open_main(ITEM_KIND_INCOME))
 			self._append_menu_item(ingresos_menu, _("Nuevo"), lambda event: self._add_item(ITEM_KIND_INCOME))
 			self._append_menu_item(ingresos_menu, _("Gestionar"), lambda event: self._manage_items(ITEM_KIND_INCOME))
 			self._append_submenu(submenu, _("Ingresos"), ingresos_menu)
@@ -86,7 +96,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 			self._append_menu_item(submenu, _("Ver informe"), self._on_show_report)
 			self._append_menu_item(submenu, _("Ayuda"), self._on_help)
-			self._menu = gui.mainFrame.sysTrayIcon.toolsMenu.AppendSubMenu(submenu, _("Cashflow"))
+			self._append_menu_item(submenu, _("Acerca de Cashflow"), self._on_about)
+			self._menu = gui.mainFrame.sysTrayIcon.toolsMenu.AppendSubMenu(submenu, ADDON_SUMMARY)
 		except Exception:
 			log.exception("No se pudo agregar el menu de Cashflow")
 
@@ -105,17 +116,20 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _on_add_payment(self, event):
 		self._add_payment()
 
+	def _on_add_collection(self, event):
+		self._add_item(ITEM_KIND_COLLECTION)
+
 	def _on_manage_payments(self, event):
 		self._manage_items(ITEM_KIND_PAYMENT)
 
-	def _on_add_income(self, event):
-		self._add_item(ITEM_KIND_COLLECTION)
-
-	def _on_manage_incomes(self, event):
+	def _on_manage_collections(self, event):
 		self._manage_items(ITEM_KIND_COLLECTION)
 
 	def _on_help(self, event):
 		self._show_help()
+
+	def _on_about(self, event):
+		self._show_about()
 
 	def _on_show_report(self, event):
 		self._show_report()
@@ -127,21 +141,28 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._restore_backup()
 
 	def _open_main(self, selected_kind=ITEM_KIND_PAYMENT):
+		started = time.monotonic()
+		log.info("cashflow main request kind=%s", selected_kind)
+		if self._main_dialog_open:
+			log.info("cashflow main request ignored reason=already-open kind=%s", selected_kind)
+			self._message(_("Cashflow ya esta abierto."))
+			return
 		available_kinds = self._available_kinds()
 		if not available_kinds:
 			self._show_error(_("Deberas activar en configuracion la casilla de cobros, ingresos o pagos para gestionar tus finanzas."))
 			return
 		if selected_kind not in available_kinds:
 			selected_kind = available_kinds[0]
+		self._main_dialog_open = True
 		dialog = MainDialog(gui.mainFrame, on_action=self._handle_live_main_action, selected_kind=selected_kind, available_kinds=available_kinds)
+		dialog.set_open_started_at(started)
 		dialog.set_kind_loader(lambda kind: self._load_main_kind(dialog, kind))
-		wx.CallAfter(sounds.play, "show")
-		self._load_main_kind(dialog, selected_kind)
 		def callback(result):
-			if result != wx.ID_OK:
-				sounds.play("close")
-				return
-			self._handle_main_action(dialog.selectedAction, dialog.get_data(), dialog.get_selected_kind())
+			try:
+				if result == wx.ID_OK:
+					self._handle_main_action(dialog.selectedAction, dialog.get_data(), dialog.get_selected_kind())
+			finally:
+				self._main_dialog_open = False
 		gui.runScriptModalDialog(dialog, callback)
 
 	def _available_kinds(self):
@@ -170,21 +191,96 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			"paid": self._store.paid_incomes_for(),
 		}
 
+	def _cache_main_kind_data(self, kind, data):
+		with self._main_kind_cache_lock:
+			self._main_kind_cache[kind] = (self._store.revision, data)
+
+	def _cached_main_kind_data(self, kind):
+		with self._main_kind_cache_lock:
+			cached = self._main_kind_cache.get(kind)
+		if not cached:
+			return None
+		revision, data = cached
+		if revision != self._store.revision:
+			return None
+		return data
+
 	def _load_main_kind(self, dialog, kind):
+		started = time.monotonic()
+		log.info(
+			"cashflow main load requested kind=%s loaded=%s loading=%s",
+			kind,
+			self._store.is_loaded,
+			self._store.is_loading,
+		)
+		cached = self._cached_main_kind_data(kind)
+		if cached is not None:
+			wx.CallAfter(self._set_main_kind_data, dialog, kind, cached)
+			log.info("cashflow main data kind=%s ready from cache in %.3fs", kind, time.monotonic() - started)
+			return
+		self._loading_dialogs[kind].append(dialog)
+		if kind in self._main_kind_loading:
+			return
+		if not self._store.is_loaded and self._store.is_loading:
+			return
+		self._main_kind_loading.add(kind)
 		def load():
 			try:
 				data = self._main_data_for_kind(kind)
+				self._cache_main_kind_data(kind, data)
 			except Exception:
 				log.exception("No se pudieron cargar los datos de Cashflow")
+				wx.CallAfter(dialog.set_kind_load_failed, kind)
 				wx.CallAfter(self._show_error, _("No se pudieron cargar los datos de Cashflow."))
-				return
-			wx.CallAfter(self._set_main_kind_data, dialog, kind, data)
+			finally:
+				self._main_kind_loading.discard(kind)
+				log.info("cashflow main data kind=%s ready in %.3fs", kind, time.monotonic() - started)
+				self._flush_loaded_kind(kind)
 		threading.Thread(target=load, daemon=True).start()
+
+	def _preload_store(self):
+		started = time.monotonic()
+		try:
+			self._store.reload()
+		except Exception:
+			log.exception("cashflow preload failed")
+			return
+		for kind in (ITEM_KIND_PAYMENT, ITEM_KIND_COLLECTION, ITEM_KIND_INCOME):
+			try:
+				data = self._main_data_for_kind(kind)
+				self._cache_main_kind_data(kind, data)
+			except Exception:
+				log.exception("cashflow preload kind failed kind=%s", kind)
+		log.info("cashflow preload finished in %.3fs", time.monotonic() - started)
+		for kind in (ITEM_KIND_PAYMENT, ITEM_KIND_COLLECTION, ITEM_KIND_INCOME):
+			self._flush_loaded_kind(kind)
+
+	def _flush_loaded_kind(self, kind):
+		data = self._main_data_for_kind(kind)
+		dialogs = self._loading_dialogs.get(kind, [])
+		self._loading_dialogs[kind] = []
+		for dialog in dialogs:
+			if dialog and not dialog.IsBeingDeleted():
+				wx.CallAfter(self._set_main_kind_data, dialog, kind, data)
 
 	def _set_main_kind_data(self, dialog, kind, data):
 		if dialog and not dialog.IsBeingDeleted():
 			dialog.set_kind_data(kind, data)
-			wx.CallAfter(dialog._focus_default)
+
+	def _refresh_main_dialog_async(self, dialog, kind):
+		started = time.monotonic()
+		def worker():
+			try:
+				data = self._main_data_for_kind(kind)
+			except Exception:
+				log.exception("No se pudo refrescar el dialogo principal de Cashflow")
+				wx.CallAfter(self._show_error, _("No se pudieron cargar los datos de Cashflow."))
+				wx.CallAfter(dialog.set_busy, False)
+				return
+			log.info("cashflow main refresh async kind=%s ready in %.3fs", kind, time.monotonic() - started)
+			wx.CallAfter(self._set_main_kind_data, dialog, kind, data)
+			wx.CallAfter(dialog.set_busy, False)
+		threading.Thread(target=worker, daemon=True).start()
 
 	def _show_error(self, message):
 		sounds.play("error")
@@ -192,7 +288,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def _message(self, text):
 		try:
-			gui.speech.speakMessage(text)
+			nvda_ui.message(text)
 		except Exception:
 			log.debugWarning("No se pudo anunciar mensaje de Cashflow", exc_info=True)
 
@@ -234,17 +330,31 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if kind not in self._available_kinds():
 			self._show_error(_("Deberas activar en configuracion la casilla de cobros, ingresos o pagos para gestionar tus finanzas."))
 			return
-		dialog = PaymentDialog(gui.mainFrame, kind=kind)
+		if self._item_dialog_open.get(kind):
+			log.info("cashflow add ignored because dialog already open kind=%s", kind)
+			return
+		self._item_dialog_open[kind] = True
+		log.info("cashflow add open kind=%s", kind)
+		dialog = PaymentDialog(gui.mainFrame, kind=kind, store=self._store)
 		def callback(result):
-			if result == wx.ID_OK and dialog.payment is not None:
-				self._store.add_payment(dialog.payment)
-				self._message(_("Elemento agregado."))
-				sounds.play("confirm")
-			self._schedule_reopen(reopen)
+			try:
+				if result == wx.ID_OK and dialog.payment is not None:
+					self._store.add_payment(dialog.payment)
+					kind_name = {
+						ITEM_KIND_PAYMENT: _("pago"),
+						ITEM_KIND_COLLECTION: _("cobro"),
+						ITEM_KIND_INCOME: _("ingreso"),
+					}.get(kind, _("elemento"))
+					self._message(_("{kind} {name} ha sido agregado.").format(kind=kind_name, name=dialog.payment.name))
+					sounds.play("confirm")
+			finally:
+				self._item_dialog_open[kind] = False
+				self._schedule_reopen(reopen)
 		gui.runScriptModalDialog(dialog, callback)
 
 	def _edit_item(self, item, reopen=None):
-		dialog = PaymentDialog(gui.mainFrame, kind=item.kind, item=item)
+		log.info("cashflow edit open item=%s kind=%s", getattr(item, "id", None), getattr(item, "kind", None))
+		dialog = PaymentDialog(gui.mainFrame, kind=item.kind, item=item, store=self._store)
 		def callback(result):
 			if result == wx.ID_OK and dialog.payment is not None:
 				self._store.update_item(dialog.payment)
@@ -254,18 +364,24 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		gui.runScriptModalDialog(dialog, callback)
 
 	def _show_pending(self):
-		self._show_occurrences(_("Pagos pendientes del mes"), self._store.pending_payments_for(), ITEM_KIND_PAYMENT, paid=False)
+		log.info("cashflow show pending payments")
+		self._show_occurrences_async(_("Pagos pendientes"), lambda: self._store.pending_payments_for(), ITEM_KIND_PAYMENT, paid=False)
 
 	def _show_paid(self):
-		self._show_occurrences(_("Pagos realizados del mes"), self._store.paid_payments_for(), ITEM_KIND_PAYMENT, paid=True)
+		self._show_occurrences_async(_("Pagos realizados"), lambda: self._store.paid_payments_for(), ITEM_KIND_PAYMENT, paid=True)
 
-	def _show_pending_incomes(self):
-		self._show_occurrences(_("Cobros pendientes del mes"), self._store.pending_collections_for(), ITEM_KIND_COLLECTION, paid=False)
+	def _show_pending_collections(self):
+		log.info("cashflow show pending collections")
+		self._show_occurrences_async(_("Cobros pendientes"), lambda: self._store.pending_collections_for(), ITEM_KIND_COLLECTION, paid=False)
+
+	def _show_paid_collections(self):
+		self._show_occurrences_async(_("Cobros realizados"), lambda: self._store.paid_collections_for(), ITEM_KIND_COLLECTION, paid=True)
 
 	def _show_paid_incomes(self):
-		self._show_occurrences(_("Cobros realizados del mes"), self._store.paid_collections_for(), ITEM_KIND_COLLECTION, paid=True)
+		self._show_occurrences_async(_("Ingresos realizados"), lambda: self._store.paid_incomes_for(), ITEM_KIND_INCOME, paid=True)
 
 	def _show_occurrences(self, title, occurrences, kind, paid):
+		log.info("cashflow show occurrences title=%s kind=%s paid=%s count=%d", title, kind, paid, len(occurrences))
 		dialog = MonthlyPaymentsDialog(gui.mainFrame, title, occurrences, kind, paid)
 		def callback(result):
 			if result != wx.ID_OK:
@@ -273,12 +389,35 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			action = dialog.selectedAction
 			if not action:
 				return
+			if action[0] == "add":
+				self._schedule_call(self._add_item, kind, lambda: self._show_occurrences(title, self._occurrences_for(kind, paid), kind, paid))
+				return
 			self._handle_occurrence_action(
 				action[0],
 				occurrences[action[1]],
 				reopen=lambda: self._show_occurrences(title, self._occurrences_for(kind, paid), kind, paid),
 			)
 		gui.runScriptModalDialog(dialog, callback)
+
+	def _show_occurrences_async(self, title, loader, kind, paid):
+		started = time.monotonic()
+		def worker():
+			try:
+				occurrences = loader()
+			except Exception:
+				log.exception("cashflow show occurrences load failed title=%s kind=%s paid=%s", title, kind, paid)
+				wx.CallAfter(self._show_error, _("No se pudieron cargar los datos."))
+				return
+			log.info(
+				"cashflow show occurrences ready title=%s kind=%s paid=%s count=%d in %.3fs",
+				title,
+				kind,
+				paid,
+				len(occurrences),
+				time.monotonic() - started,
+			)
+			wx.CallAfter(self._show_occurrences, title, occurrences, kind, paid)
+		threading.Thread(target=worker, daemon=True).start()
 
 	def _occurrences_for(self, kind, paid):
 		if kind == ITEM_KIND_PAYMENT:
@@ -460,7 +599,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		return today.year, today.month
 
 	def _filter_label(self, year, month):
-		return _("Filtro: {month:02d}/{year:04d}").format(month=month, year=year)
+		return _("Filtro: {label}").format(label=format_month_year(year, month))
 
 	def _kind_summary_data(self, kind, year, month):
 		target = date(year, month, 1)
@@ -573,7 +712,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		expense_total = self._sum_occurrences(payment_data["paid"])
 		final_total = income_total + self._sum_occurrences(collection_data["paid"]) - expense_total
 		return (
-			f"<h1>Cashflow {month:02d}/{year:04d}</h1>"
+			f"<h1>Cashflow {format_month_year(year, month)}</h1>"
 			+ "<h2>Montos:</h2>"
 			+ f"<p><strong>{escape(_('ingresos'))}:</strong> {escape(format_amount(income_total))}</p>"
 			+ f"<p><strong>{escape(_('egresos'))}:</strong> {escape(format_amount(expense_total))}</p>"
@@ -615,6 +754,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 <p>Una pulsacion abre la ventana principal en ingresos. Dos pulsaciones agrega un ingreso. Tres pulsaciones anuncia el ingreso del mes.</p>
 <h2>Gestores</h2>
 <p>Permiten agregar, modificar, eliminar, subir, bajar, importar y exportar en CSV, JSON o Excel.</p>
+<h2>Meses anteriores</h2>
+<p>Las vistas resumidas incluyen el boton Ver meses anteriores para cambiar el periodo y el boton Ver informe para abrir el detalle del mes filtrado.</p>
 <h2>Copias de seguridad</h2>
 <p>Se pueden guardar copias cifradas en .data con contraseña y recuperarlas sobreescribiendo los datos actuales.</p>
 <h2>Configuracion</h2>
@@ -627,6 +768,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 <p>El informe muestra cantidades y montos de pagos, cobros e ingresos para el mes filtrado.</p>
 """
 		self._show_browseable_html(_("Ayuda de Cashflow"), html)
+
+	def _show_about(self):
+		html = f"""
+<h1>{escape(display_name())}</h1>
+<p><strong>Desarrollador:</strong> {escape(ADDON_AUTHOR)}</p>
+<p><strong>Email:</strong> {escape(ADDON_EMAIL)}</p>
+<p><strong>Web:</strong> {escape(ADDON_URL)}</p>
+<p><strong>Version:</strong> {escape(ADDON_VERSION)}</p>
+<p>Cashflow permite registrar pagos, cobros e ingresos desde NVDA con formularios accesibles, vistas resumidas y copias de seguridad cifradas.</p>
+"""
+		self._show_browseable_html(_("Acerca de Cashflow"), html)
 
 	def _handle_main_action(self, action, data, selected_kind):
 		if not action:
@@ -648,55 +800,81 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _handle_live_main_action(self, action, dialog):
 		data = dialog.get_data()
 		if not action:
+			log.info("cashflow main action skipped reason=empty")
 			return False
+		log.info(
+			"cashflow main action=%s selected_kind=%s pending=%s paid=%s",
+			action,
+			dialog.get_selected_kind(),
+			len(data.get("pending") or []),
+			len(data.get("paid") or []),
+		)
 		if action[0] == "manage":
+			log.info("cashflow main action delegated to manage kind=%s", action[1])
 			return False
 		if action[0] == "add":
 			kind = dialog.get_selected_kind()
-			self._schedule_call(self._add_item, kind, lambda: dialog.set_kind_data(kind, self._main_data_for_kind(kind)))
+			log.info("cashflow main action add scheduled kind=%s", kind)
+			dialog.set_busy(True)
+			self._schedule_call(self._add_item, kind, lambda: self._refresh_main_dialog_async(dialog, kind))
 			return True
 		name, key, index = action
 		occurrences = data.get(key)
 		if not occurrences or index >= len(occurrences):
+			log.info("cashflow main action ignored action=%s reason=invalid-index", action)
 			return True
 		occurrence = occurrences[index]
 		kind = dialog.get_selected_kind()
 		if name == "mark_paid":
+			log.info("cashflow main action mark_paid item=%s", occurrence.item.id)
+			dialog.set_busy(True)
 			if self._mark_occurrence_paid(occurrence):
-				dialog.set_kind_data(kind, self._main_data_for_kind(kind))
+				self._refresh_main_dialog_async(dialog, kind)
+			else:
+				wx.CallAfter(dialog.set_busy, False)
 			return True
 		if name == "mark_pending":
+			log.info("cashflow main action mark_pending item=%s", occurrence.item.id)
+			dialog.set_busy(True)
 			if self._mark_occurrence_pending(occurrence):
-				dialog.set_kind_data(kind, self._main_data_for_kind(kind))
+				self._refresh_main_dialog_async(dialog, kind)
+			else:
+				wx.CallAfter(dialog.set_busy, False)
 			return True
 		if name == "delete":
+			log.info("cashflow main action delete item=%s", occurrence.item.id)
+			dialog.set_busy(True)
 			if self._delete_item_now(occurrence.item):
-				dialog.set_kind_data(kind, self._main_data_for_kind(kind))
+				self._refresh_main_dialog_async(dialog, kind)
+			else:
+				wx.CallAfter(dialog.set_busy, False)
 			return True
 		if name == "edit":
-			self._schedule_call(self._edit_item, occurrence.item, lambda: dialog.set_kind_data(kind, self._main_data_for_kind(kind)))
+			log.info("cashflow main action edit item=%s", occurrence.item.id)
+			dialog.set_busy(True)
+			self._schedule_call(self._edit_item, occurrence.item, lambda: self._refresh_main_dialog_async(dialog, kind))
 			return True
+		log.info("cashflow main action ignored action=%s reason=unsupported", action)
 		return False
 
 	def _mark_occurrence_paid(self, occurrence):
-		if not self._confirm_mark(occurrence.item, _("Marcar como realizado")):
-			return False
+		log.info("cashflow mark paid item=%s period=%s", occurrence.item.id, occurrence.period)
 		if self._store.mark_paid(occurrence.item.id, occurrence.period):
 			self._message(_("Marcado como realizado."))
-			sounds.play("confirm")
+			sounds.play("mark")
 			return True
 		return False
 
 	def _mark_occurrence_pending(self, occurrence):
-		if not self._confirm_mark(occurrence.item, _("Marcar como pendiente")):
-			return False
+		log.info("cashflow mark pending item=%s period=%s", occurrence.item.id, occurrence.period)
 		if self._store.mark_pending(occurrence.item.id, occurrence.period):
 			self._message(_("Marcado como pendiente."))
-			sounds.play("confirm")
+			sounds.play("pending")
 			return True
 		return False
 
 	def _handle_occurrence_action(self, action, occurrence, reopen=None):
+		log.info("cashflow occurrence action=%s item=%s period=%s", action, occurrence.item.id, occurrence.period)
 		if action == "mark_paid":
 			self._mark_occurrence_paid(occurrence)
 			self._schedule_reopen(reopen)
@@ -722,6 +900,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._schedule_reopen(reopen)
 
 	def _delete_item_now(self, item):
+		log.info("cashflow delete requested item=%s kind=%s", item.id, item.kind)
 		sounds.play("open")
 		result = gui.messageBox(
 			_("Eliminar {name}?").format(name=item.name),
@@ -730,11 +909,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			gui.mainFrame,
 		)
 		if result != wx.YES:
+			log.info("cashflow delete canceled item=%s", item.id)
 			return False
 		if self._store.delete_item(item.id):
 			self._message(_("Elemento eliminado."))
-			sounds.play("confirm")
+			sounds.play("delete")
+			log.info("cashflow delete done item=%s", item.id)
 			return True
+		log.info("cashflow delete failed item=%s", item.id)
 		return False
 
 	@script(
